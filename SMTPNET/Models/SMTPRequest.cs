@@ -19,6 +19,8 @@ namespace SMTPNET.Models
         private Socket socket;
         private StatusEnum status;
 
+        public bool GracefulFinish;
+
         public SMTPRequest(Socket incomingSocket, string basepath)
         {
             _pathfile = Path.Combine(basepath, $"{DateTime.Now.ToString("yyyyMMdd.hhmmss.FFFFFFF")}.email");
@@ -29,9 +31,11 @@ namespace SMTPNET.Models
         }
 
         internal int NullCounter;
+
         public void Start()
         {
-            WriteLine($"220 Welcome <mail.wifiorders.com.de> SMTP Server. {status}");
+            WriteLine("220 Welcome <mail.wifiorders.com.de> SMTP Server");
+            
             while (socket.Connected)
             {
                 ReadOnlySpan<char> data = Read(lineTerminator);
@@ -73,14 +77,9 @@ namespace SMTPNET.Models
                                 break;
                             case "DATA":
                                 WriteSendData();
-                                dataresult = Read(dataTerminator);
-
-                                using (var fs = File.CreateText(_pathfile.ToString()))
-                                {
-                                    fs.Write(dataresult);
-                                }
-                                WriteOk();
-                                WriteLine("QUIT");
+                                GracefulFinish = SaveData();
+                                this.WriteOk();
+                                this.WriteLine("QUIT");
                                 socket.Dispose();
                                 break;
                             default:
@@ -100,31 +99,56 @@ namespace SMTPNET.Models
             socket.Dispose();
         }
 
-        #region Read/Write
+
         private ReadOnlySpan<char> Read(string terminator)
         {
-            var bytes = new byte[readCount];
-            var data = new StringBuilder();
-
-            while (true)
+            Span<byte> bytes = stackalloc byte[32];
+            Span<char> chars = new char[64];
+            bool? spin = null;
+            while (spin is not true)
             {
                 var count = socket.Receive(bytes);
                 if (count == 0) { break; }
-                var dataString = Encoding.UTF8.GetString(bytes, 0, count);
-                data.Append(dataString);
-                if (dataString.EndsWith(terminator)) { break; }
+                if (bytes [(count-2) .. count].EndsAs(terminator)) { break; }
+                if (spin is null) { spin = false; }
+                else if (spin is false) {  spin = true;}
             }
-
-            Debug(data.ToString());
-            return data.ToString();
+            Encoding.UTF8.GetChars(bytes, chars);
+            ConsoleWrite(chars.ToString());
+            return chars;
         }
+
+
+        private bool SaveData()
+        {
+            Span<byte> bytes = stackalloc byte[2048];
+            using (Stream fs = File.OpenWrite(_pathfile.ToString()))
+            {
+             //   int total = 0;
+            reread:              
+                int count = socket.Receive(bytes);
+                if (count == 0) { return false; }
+                else
+                {
+                    ReadOnlySpan<char> theread = Encoding.UTF8.GetString(bytes[0..count]);
+
+                    Console.WriteLine(theread.ToString());
+                    fs.Write(bytes); 
+
+                    if (theread.EndsAs("\r\n.\r\n")) { return true; }
+                    else
+                    { goto reread; }
+                } 
+            }
+        }
+
+
 
         private void WriteLine(string data)
         {
-            data += lineTerminator;
-            byte[] bytes = Encoding.UTF8.GetBytes(data);
-            socket.Send(bytes);
-            Debug(data);
+            string message =  data + lineTerminator;
+            socket.Send(message.ToUTF8());
+            ConsoleWrite(data);
         }
 
         private void WriteOk()
@@ -146,10 +170,10 @@ namespace SMTPNET.Models
         {
             WriteLine("354 Start mail input; end with <CRLF>.<CRLF>");
         }
-        #endregion
+     
 
 
-        private static void Debug(string data)
+        private static void ConsoleWrite(string data)
         {
             if (string.IsNullOrWhiteSpace(data))
             {

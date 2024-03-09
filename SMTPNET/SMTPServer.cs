@@ -13,15 +13,15 @@ namespace SMTPNET
            
         private string _path;
 
-        public SMTPServer(IPEndPoint endpoint)
+        public SMTPServer(int port)
         {
-            listener = new TcpListener(endpoint);
+            listener = new TcpListener(IPEndPoint.Parse($"0.0.0.0:{port}"));
             _path = Path.Combine(AppContext.BaseDirectory, "emails");
             if (!Directory.Exists(_path))
             {
                 Directory.CreateDirectory(_path);
             }
-            listener.Start();
+            listener.Start(5);
             IASYNCS = new Collection<IAsyncResult>();
         }
 
@@ -64,7 +64,16 @@ namespace SMTPNET
         public void AcceptClient(IAsyncResult client)
         {
             Socket IncomingClient = listener.EndAcceptSocket(client);
-            Console.WriteLine($"Accepted: {IncomingClient.RemoteEndPoint}");
+            string? IncomingIP = IncomingClient.RemoteEndPoint?.ToString()?.Split(":")[0];
+            if (IncomingIP is not null)
+            {
+                var clienthost = Dns.GetHostEntry(IncomingIP);
+                Console.WriteLine($"Accepted HostName: {clienthost.HostName}");
+            }
+            
+
+            Console.WriteLine($"RemoteEndPoint: {IncomingClient.RemoteEndPoint}");
+            
             Console.ForegroundColor = ConsoleColor.Yellow;
             SMTPRequest sreq = new(IncomingClient, _path);
             Console.ForegroundColor = ConsoleColor.Cyan;

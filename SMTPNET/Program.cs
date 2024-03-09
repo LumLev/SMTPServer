@@ -2,7 +2,7 @@
 
 using SMTPNET;
 
-SMTPServer SS = new(IPEndPoint.Parse("mail.domain.tld:25"));
+SMTPServer SS = new(25);
 
 SS.StartAcceptMail();
 
