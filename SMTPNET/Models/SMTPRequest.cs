@@ -32,9 +32,12 @@ namespace SMTPNET.Models
 
         internal int NullCounter;
 
+        /// <summary>
+        /// Starts the 
+        /// </summary>
         public void Start()
         {
-            WriteLine("220 Welcome <mail.wifiorders.com.de> SMTP Server");
+            WriteLine("220 Welcome <mail.yourdomain.tld> SMTP Server");
             
             while (socket.Connected)
             {

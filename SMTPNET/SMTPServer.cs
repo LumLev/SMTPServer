@@ -8,11 +8,8 @@ namespace SMTPNET
 {
     public class SMTPServer
     {
-
-        private TcpListener listener;
-           
+        private TcpListener listener; 
         private string _path;
-
         public SMTPServer(int port)
         {
             listener = new TcpListener(IPEndPoint.Parse($"0.0.0.0:{port}"));
@@ -26,10 +23,7 @@ namespace SMTPNET
         }
 
         internal Collection<IAsyncResult> IASYNCS;
-
-
         public bool OnGoing;
-
         internal void HandleConnections()
         {
             while(IASYNCS.Count > 0)
@@ -41,7 +35,6 @@ namespace SMTPNET
             OnGoing = false;
             StartAcceptMail();
         }
-
         internal void AddToQueue(IAsyncResult begunsocket)
         {
             IASYNCS.Add(begunsocket);
@@ -50,7 +43,6 @@ namespace SMTPNET
             else
             { StartAcceptMail(); } 
         }
-       
         public void StartAcceptMail()
         {
             Console.ForegroundColor = ConsoleColor.Green;
@@ -59,8 +51,6 @@ namespace SMTPNET
             IAsyncResult acceptingsocket = listener.BeginAcceptSocket(null,null);
             AddToQueue(acceptingsocket);
         }
-
-
         public void AcceptClient(IAsyncResult client)
         {
             Socket IncomingClient = listener.EndAcceptSocket(client);
