@@ -105,7 +105,7 @@ namespace SMTPNET.Models
 
         private ReadOnlySpan<char> Read(string terminator)
         {
-            Span<byte> bytes = stackalloc byte[32];
+            Span<byte> bytes = stackalloc byte[64];
             Span<char> chars = new char[64];
             bool? spin = null;
             while (spin is not true)
