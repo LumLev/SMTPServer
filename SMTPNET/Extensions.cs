@@ -19,7 +19,7 @@ public static class MemoryExtensions
 
     public static ReadOnlySpan<char> GetFirstTag(this ReadOnlySpan<char> chars)
     {
-        return chars[(chars.IndexOf('<') + 1)..chars.IndexOf('>')];
+        return chars[(chars.IndexOf('<') + 1)..chars.IndexOf('>')].Trim();
     }
 
     public static ReadOnlySpan<byte> ToUTF8(this string chars) 

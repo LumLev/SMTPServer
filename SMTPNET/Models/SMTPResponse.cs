@@ -5,32 +5,36 @@ using System.Text.Json;
 
 namespace SMTPNET.Models
 {
-    public ref struct SMTPRequest
+    public ref struct SMTPResponse
     {
         private const int readCount = 512000;
         private const string lineTerminator = "\r\n";
         private const string dataTerminator = "\r\n.\r\n";
 
         private ReadOnlySpan<char> _pathfile;
-        public ReadOnlySpan<char> dataresult;
+
+        public ReadOnlySpan<char> DataResult;
 
         public ReadOnlySpan<char> Sender;
 
-        private Socket socket;
+        private Socket TheSocket;
         private StatusEnum status;
+
+        public ReadOnlySpan<char> HostDnsName;
 
         public bool GracefulFinish;
 
-        public SMTPRequest(Socket incomingSocket, string basepath)
+        public SMTPResponse(Socket incomingSocket, string basepath, string hostDnsName)
         {
+            HostDnsName = hostDnsName;
             _pathfile = Path.Combine(basepath, $"{DateTime.Now.ToString("yyyyMMdd.hhmmss.FFFFFFF")}.email");
-            dataresult = "";
-            socket = incomingSocket;
+           // DataResult = "";
+            TheSocket = incomingSocket;
             status = StatusEnum.Connected;
             Start();
         }
 
-        internal int NullCounter;
+        internal int DisconnectCounter = 0;
 
         /// <summary>
         /// Starts the 
@@ -39,21 +43,17 @@ namespace SMTPNET.Models
         {
             WriteLine("220 Welcome <mail.yourdomain.tld> SMTP Server");
             
-            while (socket.Connected)
+            while (TheSocket.Connected)
             {
+                if (DisconnectCounter > 2) { TheSocket.Disconnect(false); break; }
                 ReadOnlySpan<char> data = Read(lineTerminator);
-                if (data == null) 
-                {
-                    NullCounter++;
-                    if (NullCounter == 3) { socket.Dispose(); }
-                    break;
-                }
+                if (data.Length < 1) { DisconnectCounter++; break; }
                 else
                 {
                     if (data.StartsAs("QUIT"))
                     {
                         WriteLine("221 Good bye");
-                        socket.Dispose();
+                        TheSocket.Disconnect(false);
                         break;
                     }
                     else
@@ -62,44 +62,71 @@ namespace SMTPNET.Models
                         {
                             case "QUIT":
                                 WriteLine("221 Good bye");
-                                socket.Dispose();
+                                TheSocket.Disconnect(false);
+                                break;
+                            case "RSET":
+                                WriteLine("250 OK");
+                                status = StatusEnum.Identified;
+                                Sender = "";
+                                DataResult = "";
                                 break;
                             case "HELO":
                             case "EHLO":
-                                WriteGreeting(data.Slice(0, 4));
-                                status = StatusEnum.Identified;
+                                if (status is StatusEnum.Connected)
+                                {
+                                    WriteGreeting(data.Slice(0, 4));
+                                    status = StatusEnum.Identified;
+                                }
+                                else { DisconnectCounter++; WriteCommand(SmtpResponseCode.BadSequenceOfCommands);  }
                                 break;
                             case "MAIL":
-                                status = StatusEnum.Mail;
-                                WriteOk();
-                                this.Sender = data.GetFirstTag();
+                                if (status is StatusEnum.Identified)
+                                {
+                                   
+                                    status = StatusEnum.Mail;
+                                    Sender = data.GetFirstTag();
+                                    if (HostDnsName.EndsWith(Sender[(Sender.IndexOf('@') + 1)..]))
+                                    { WriteLine("250 OK"); }
+                                    else
+                                    {
+                                        WriteCommand(SmtpResponseCode.DnsError);
+                                        WriteLine("QUIT");
+                                        TheSocket.Disconnect(false);
+                                    }
+                                    
+                                   
+                                } 
+                                else { DisconnectCounter++; WriteCommand(SmtpResponseCode.BadSequenceOfCommands);  }
                                 break;
                             case "RCPT":
-                                status = StatusEnum.Recipient;
-                                WriteOk();
+                                if (status is StatusEnum.Recipient || status is StatusEnum.Mail)
+                                {
+                                    status = StatusEnum.Recipient;
+                                    WriteLine("250 OK");
+                                } 
+                                else { DisconnectCounter++; WriteCommand(SmtpResponseCode.BadSequenceOfCommands); }
                                 break;
                             case "DATA":
-                                WriteSendData();
-                                GracefulFinish = SaveData();
-                                this.WriteOk();
-                                this.WriteLine("QUIT");
-                                socket.Dispose();
+                                if (status is not StatusEnum.Recipient)
+                                { DisconnectCounter++; WriteCommand(SmtpResponseCode.BadSequenceOfCommands); }
+                                else
+                                {
+                                    status = StatusEnum.Data;
+                                    WriteLine("354 Start mail input; end with <CRLF>.<CRLF>");
+                                    GracefulFinish = SaveData();
+                                    WriteLine("250 OK");
+                                    WriteLine("QUIT");
+                                    TheSocket.Disconnect(false);
+                                }
                                 break;
                             default:
-                                WriteError(ErrorEnum.CommandNotImplemented, "Command not implemented");
-                                socket.Dispose();
+                                WriteLine(" Command not implemented");
+                                DisconnectCounter++;
                                 break;
                         }
                     }
                 }
             }
-        }
-
-
-        internal void WriteCmdUnkownAndDispose()
-        {
-            WriteError(ErrorEnum.CommandNotImplemented, "Command not implemented");
-            socket.Dispose();
         }
 
 
@@ -110,7 +137,7 @@ namespace SMTPNET.Models
             bool? spin = null;
             while (spin is not true)
             {
-                var count = socket.Receive(bytes);
+                var count = TheSocket.Receive(bytes);
                 if (count == 0) { break; }
                 if (bytes [(count-2) .. count].EndsAs(terminator)) { break; }
                 if (spin is null) { spin = false; }
@@ -129,7 +156,7 @@ namespace SMTPNET.Models
             {
              //   int total = 0;
             reread:              
-                int count = socket.Receive(bytes);
+                int count = TheSocket.Receive(bytes);
                 if (count == 0) { return false; }
                 else
                 {
@@ -145,36 +172,24 @@ namespace SMTPNET.Models
             }
         }
 
+        private void WriteCommand(SmtpResponseCode smtpResponseCode)
+        {
+            WriteLine($"${(int)smtpResponseCode} ${smtpResponseCode}");
+        }
 
 
         private void WriteLine(string data)
         {
             string message =  data + lineTerminator;
-            socket.Send(message.ToUTF8());
+            TheSocket.Send(message.ToUTF8());
             ConsoleWrite(data);
         }
 
-        private void WriteOk()
-        {
-            WriteLine("250 OK");
-        }
-
-        private void WriteError(ErrorEnum error, ReadOnlySpan<char> description)
-        {
-            WriteLine($"{error} - {description}");
-        }
 
         private void WriteGreeting(ReadOnlySpan<char> id)
         {
             WriteLine($"250 Hello {id}");
         }
-
-        private void WriteSendData()
-        {
-            WriteLine("354 Start mail input; end with <CRLF>.<CRLF>");
-        }
-     
-
 
         private static void ConsoleWrite(string data)
         {
